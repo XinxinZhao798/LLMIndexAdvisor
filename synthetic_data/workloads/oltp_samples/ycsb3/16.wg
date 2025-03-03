@@ -1,0 +1,1 @@
+UPDATE usertable SET FIELD1='v<UFc*~So#)_& _/ &[',FIELD2='?UMT(N]k^d:p7K1_/ &%',FIELD3='nO9nK}ryWH-mP+T:t#^O',FIELD4='MEi c@N^d=o:O4_3*B]K',FIELD5='z1n%M~h1x~0kj()@GW]g',FIELD6='O0ny,)HZbS:8rrqd2e2_',FIELD7='x>S)l>EWsvBx`?Z>m &w',FIELD8='`mDX8Yc,xwm1-+V|r%bp',FIELD9='wu[|:ne.xx<8vuh2Dbpi',FIELD10='7<~1:*i.t{jK9jGyruSD' WHERE YCSB_KEY='5';

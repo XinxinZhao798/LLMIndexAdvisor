@@ -1,0 +1,1 @@
+SELECT cf.numberx FROM special_facility sf, call_forwarding cf WHERE sf.s_id = '87467' AND sf.sf_type = '4' AND sf.is_active = 1 AND cf.s_id = sf.s_id AND cf.sf_type = sf.sf_type AND cf.start_time <= '0' AND cf.end_time > '14';

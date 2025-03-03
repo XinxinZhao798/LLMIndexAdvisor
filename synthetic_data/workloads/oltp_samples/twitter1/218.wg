@@ -1,0 +1,2 @@
+SELECT f2 FROM "follows" WHERE f1 = '18747' LIMIT 20;
+SELECT * FROM "tweets" WHERE uid IN ('2', '1', '9', '32', '3', '56', '8', '8', '8', '8', '8', '8', '8', '8', '8', '8', '8', '8', '8', '8');

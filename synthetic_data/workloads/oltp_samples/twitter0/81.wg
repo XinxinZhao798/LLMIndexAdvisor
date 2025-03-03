@@ -1,0 +1,1 @@
+SELECT * FROM "tweets" WHERE id = '48969815';

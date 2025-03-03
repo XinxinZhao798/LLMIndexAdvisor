@@ -1,0 +1,2 @@
+UPDATE subscriber SET bit_1 = '0' WHERE s_id = '19917';
+UPDATE special_facility SET data_a = '191' WHERE s_id = '19917' AND sf_type = '2';

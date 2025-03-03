@@ -1,0 +1,1 @@
+SELECT f2 FROM "followers" WHERE f1 = '17678' LIMIT 20;

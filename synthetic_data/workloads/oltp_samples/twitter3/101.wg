@@ -1,0 +1,1 @@
+SELECT * FROM "tweets" WHERE uid = '7636' LIMIT 10;

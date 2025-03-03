@@ -1,0 +1,3 @@
+SELECT * FROM accounts WHERE name = '00000000000000000000';
+SELECT bal FROM savings WHERE custid = '41028381';
+UPDATE savings SET bal = bal - '20.2' WHERE custid = '41028381';

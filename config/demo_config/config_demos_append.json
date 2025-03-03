@@ -1,0 +1,12 @@
+{
+    "db_name": "",
+    "workload_dir" : "",
+    "workload_info_dir" : "",
+    "demosinfo_output_path" : "", 
+    "log_path": "",
+    "indexes_dir" : "",
+    "start_id" : 0,
+    "num" : 0,
+    "logger_console" : "INFO", 
+    "logger_file" : "INFO"
+}

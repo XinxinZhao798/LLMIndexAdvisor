@@ -1,0 +1,3 @@
+SELECT s_id FROM subscriber WHERE sub_nbr = '000000000014491';
+SELECT sf_type FROM special_facility WHERE s_id = '14491';
+INSERT INTO call_forwarding VALUES ('14491', '2', '16', '22', '000000000014491');

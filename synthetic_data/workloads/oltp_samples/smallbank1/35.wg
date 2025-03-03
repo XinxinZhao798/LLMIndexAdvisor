@@ -1,0 +1,3 @@
+SELECT * FROM accounts WHERE name = '00000000000000000000';
+SELECT bal FROM savings WHERE custid = '41097526';
+SELECT bal FROM checking WHERE custid = '41097526';

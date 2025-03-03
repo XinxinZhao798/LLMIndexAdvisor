@@ -1,0 +1,1 @@
+UPDATE usertable SET FIELD1='4JMI|C]`SYe)M>=Ul1t]',FIELD2='r[{=:T@hxaLoJ%>jx^GF',FIELD3='0 5hSL@GWs5`X~}x>L^d',FIELD4='C<U}Q5@o hTR]WvIgjSa',FIELD5=')\3q)l~bKxD&AU_tzw',FIELD6='D ~sQmhoW]iwwq=cr!^l',FIELD7='A=S1/Ox=*Mb-9M!lD,(|',FIELD8=')\q3JK~l-j_^Y*Rx~d0',FIELD9='Q%0,J}ehSa>[2)e*!Ixw',FIELD10='b6p7KN!/^G+^H98+2Vt#' WHERE YCSB_KEY='102';

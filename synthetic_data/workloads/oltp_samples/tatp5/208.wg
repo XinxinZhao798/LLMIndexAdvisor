@@ -1,0 +1,2 @@
+SELECT s_id FROM subscriber WHERE sub_nbr = '000000000098164';
+UPDATE subscriber SET vlr_location = '2116754614' WHERE s_id = '98164';

@@ -1,0 +1,5 @@
+SELECT * FROM accounts WHERE custid = '42718046';
+SELECT * FROM accounts WHERE custid = '34551213';
+SELECT bal FROM checking WHERE custid = '42718046';
+UPDATE checking SET bal = bal + '-5' WHERE custid = '42718046';
+UPDATE checking SET bal = bal + '5' WHERE custid = '34551213';

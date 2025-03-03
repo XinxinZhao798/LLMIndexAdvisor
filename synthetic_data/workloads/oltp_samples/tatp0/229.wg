@@ -1,0 +1,2 @@
+SELECT s_id FROM subscriber WHERE sub_nbr = '000000000028395';
+DELETE FROM call_forwarding WHERE s_id = '28395' AND sf_type = '4' AND start_time = '0';

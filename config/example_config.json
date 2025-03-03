@@ -1,0 +1,34 @@
+{
+    "db_name": "",
+    "schema": "",
+    "type": "",
+    "AP_Config": {
+        "workload_path": ""
+    },
+    "TP_Config": {
+        "benchmark": "",
+        "workload_dir": "",
+        "benchmark_path": "",
+        "benchmark_config": "",
+        "workload_path": ""
+    },
+    "num_of_iterations": 4,
+    "index_storage_proportion": 0.5,
+    "what_if": true,
+    "mode": "wi_mv",
+    "demos_match_method": "cos",
+    "storage_gen": false,
+    "num_of_actual_executions": 3,
+    "num_of_samples": 8,
+    "temperature": 0.6,
+    "demos_num": 2,
+    "model_name": "",
+    "api_key": "",
+    "base_url": "",
+    "demos_path": "./demos_info/all.json",
+    "demos_meta_data_path": "./demos_info/meta_data/all_cross_meta.json",
+    "demos_match_feat": 4,
+    "detailed_info_path": "./log",
+    "logger_console": "INFO",
+    "logger_file": "INFO"
+}

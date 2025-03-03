@@ -1,0 +1,2 @@
+SELECT * FROM usertable where YCSB_KEY='0' FOR UPDATE;
+UPDATE usertable SET FIELD1='~--22gu^luA/JHY),SD=',FIELD2='_||oLKFjt9?8n7vN#5bK',FIELD3='z10cM]*1W]A9V,igFMW{',FIELD4='G-La>g0xY:xx7(SebS9O',FIELD5='W]?Z0T_tz7R5/o>Uc^O=',FIELD6='/Ec)~Gx5x~U{u_/ &',FIELD7='z0Exx\@GWs/E{7V1j: &',FIELD8='xv\=z/Fnxo&yXXR*<bhU',FIELD9='/L9B:a&ts<_ AtX@hxa&',FIELD10='JXX]2Ogu^lu+DurY>ASo' WHERE YCSB_KEY='0';
