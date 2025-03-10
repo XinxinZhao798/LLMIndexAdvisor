@@ -16,10 +16,14 @@ def write_json(file_path, data):
 db_name = ''
 config_json_file = ''
 cmd = ['python', '-m', 'selection', config_json_file]
-# ar = [13, 15, 187, 188]
 
+start_n = 0
+end_n = 200
+heuristics_methods_dir_cmd = "cd [dir_of_magicmirror]"
 
-for i in np.arange(150, 200, 1) :
+subprocess.run(heuristics_methods_dir_cmd, shell=True, capture_output=True, text=True)
+
+for i in np.arange(start_n, end_n, 1) :
 # for i in ar :
     print(f"** this is the {i}th execution **")
     config = load_json(config_json_file)
