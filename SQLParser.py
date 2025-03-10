@@ -208,6 +208,10 @@ def get_db_schema(db_name, path, schema = 'public'):
     db_schema["create_index_statements"] = create_index_statements
 
     # f"./data/{db_name}_schema.json"
+    abs_path = os.path.abspath(path)
+    # print(abs_path)
+    if not os.path.exists(os.path.dirname(abs_path)) : os.makedirs(os.path.dirname(abs_path))
+    
     with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(db_schema, indent=2, ensure_ascii=False))
 
@@ -359,6 +363,9 @@ def get_ndvs_all(conn, ndv_path, schema = 'public') :
         if cur :
             cur.close()
     
+    abs_path = os.path.abspath(ndv_path)
+    if not os.path.exists(os.path.dirname(abs_path)) : os.makedirs(os.path.dirname(abs_path))
+
     with open(ndv_path, 'w') as f:
         json.dump(ndvs, f, indent=4)
         

@@ -230,7 +230,7 @@ def execute_sql_file(conn, sql_file_path, schema = "public", threshold = 5000, o
                         tmp = plan["Actual Total Time"]
                         execution_time += plan["Actual Total Time"]
                         # logger.debug(f"* current sql execution time is {tmp} and now the actual total time is {execution_time}.")
-                        print(f"* current sql execution time is {tmp} and now the actual total time is {execution_time}.")
+                        # print(f"* current sql execution time is {tmp} and now the actual total time is {execution_time}.")
                     else :
                         cur.execute(sql)
                 except psycopg2.OperationalError as error :
@@ -319,7 +319,7 @@ def oltp_stress_test_db(benchmark, benchmark_config) :
     
     config = DBConfig()
     connection = psycopg2.connect(
-        dbname = 'u2023000897',
+        dbname = config.user,
         user = config.user,
         password = config.password,
         host = config.host,
@@ -343,8 +343,8 @@ def oltp_stress_test_db(benchmark, benchmark_config) :
         cur.execute("create extension hypopg;")
     connection.close()
         
-    cd_cmd = "cd /home/u2023000897/benchbase/target/benchbase-postgres"
-    result_file = '/home/u2023000897/benchbase/target/benchbase-postgres/results/{}/{}'.format(benchmark, stamp)
+    cd_cmd = "cd ./benchbase/target/benchbase-postgres"
+    result_file = './benchbase/target/benchbase-postgres/results/{}/{}'.format(benchmark, stamp)
     # exe_cmd = 'java -jar benchbase.jar -b {} -c config/postgres/{}/sample_{}_config{}.xml --clear=true --create=true --load=true --execute=true --directory {}'.format(benchmark, benchmark, benchmark, workload, result_file)
     exe_cmd = 'java -jar benchbase.jar -b {} -c {} --clear=true --create=true --load=true --directory {}'.format(benchmark, benchmark_config, result_file)
 
@@ -356,8 +356,8 @@ def oltp_stress_test_db(benchmark, benchmark_config) :
 def oltp_stress_test(benchmark, config) :
     stamp = int(time.time())
 
-    cd_cmd = "cd /home/u2023000897/benchbase/target/benchbase-postgres"
-    result_file = '/home/u2023000897/benchbase/target/benchbase-postgres/results/{}/{}'.format(benchmark, stamp)
+    cd_cmd = "cd ./benchbase/target/benchbase-postgres"
+    result_file = './benchbase/target/benchbase-postgres/results/{}/{}'.format(benchmark, stamp)
     # exe_cmd = 'java -jar benchbase.jar -b {} -c config/postgres/{}/sample_{}_config{}.xml --clear=true --create=true --load=true --execute=true --directory {}'.format(benchmark, benchmark, benchmark, workload, result_file)
     exe_cmd = 'java -jar benchbase.jar -b {} -c {} --execute=true --directory {}'.format(benchmark, config, result_file)
 
@@ -1385,13 +1385,13 @@ def demos_cal_meta_data(input_info) :
     
     return demos_meta_data
 
-def demos_match(input_info, recommend_demos, iter_idx, num, args, feat = 0, top_n = 6) : 
+def demos_match_cos(input_info, recommend_demos, iter_idx, num, args, feat = 0) : 
     logger.info(f"Demonstration Matching [{feat}]...")
     demo_ids = []
     
     demos_path = args["demos_path"]
     demos_meta_data_path = args["demos_meta_data_path"]
-    
+        
     # demos_meta_data
     db_bench = {'imdb' : 'job', 'tpch_5' : 'tpch', 'tpcds_1' : 'tpcds'}
     key = ""
@@ -1441,14 +1441,7 @@ def demos_match(input_info, recommend_demos, iter_idx, num, args, feat = 0, top_
     else :
         freq_join_si = normalized_freq_ndvs_list_si
         freq_join_product_si = freqs_ndvs_product_si
-        
-    # logger.info(f"Similarities 0 --> {sorted(normalized_freq_ndvs_list_si, key=lambda x: x[1], reverse=True)}")
-    # logger.info(f"Similarities 1 --> {sorted(freqs_ndvs_product_si, key=lambda x: x[1], reverse=True)}")
-    # logger.info(f"Similarities 2 --> {sorted(join_ndvs_info_si, key=lambda x: x[1], reverse=True)}")
-    # logger.info(f"Similarities 3 --> {sorted(join_ndvs_product_si, key=lambda x: x[1], reverse=True)}")
-    # logger.info(f"Similarities 4 --> {sorted(freq_join_si, key=lambda x: x[1], reverse=True)}")
-    # logger.info(f"Similarities 5 --> {sorted(freq_join_product_si, key=lambda x: x[1], reverse=True)}")
-    # exit()
+
     
     if feat == 0 :
         similarities = normalized_freq_ndvs_list_si
@@ -1468,23 +1461,20 @@ def demos_match(input_info, recommend_demos, iter_idx, num, args, feat = 0, top_
     # print([sorted_si[0] for sorted_si in sorted_similarities][:10])
     # print(sorted_similarities)
     # exit()
-    demos_candidates = sorted_similarities[:top_n]
-
+    
     if iter_idx <= 1 :
         demo_ids = [ss[0] for ss in sorted_similarities[:num]]   
     else :
         demo_ids = [ss[0] for ss in sorted_similarities[(iter_idx-1) * num : (iter_idx-1) * num + num]] 
-    
-    # demos_candidates = recommend_demos
-    # demo_ids = random.sample(list(demos_candidates.keys()), num)
-    
+
     return demo_ids
 
-def demos_match_cluster(input_info, recommend_demos, iter_idx, num, args, feat = 0, top_n = 6) : 
+def demos_match_cluster(input_info, recommend_demos, iter_idx, num, args, feat = 0, cluster_n = 6) : 
     logger.info(f"Demonstration Matching [{feat}]...")
     demo_ids = []
     
     demos_meta_data_path = args["demos_meta_data_path"]
+    cluster_n = args['demos_cluster_n']
     
     demos_meta_data = {} # demos_idx -> demos_feat {where, join}
     # calculate columns set in demos
@@ -1526,7 +1516,7 @@ def demos_match_cluster(input_info, recommend_demos, iter_idx, num, args, feat =
     join_ndvs_p_meta_data = [(item[0], np.pad(item[1], (0, max_length - len(item[1])), constant_values=0)) for item in join_ndvs_ori_data]
     
     # cluster
-    num_clusters = int(len(demos_meta_data)/20)
+    num_clusters = int(len(demos_meta_data)/cluster_n)
     kmeans = KMeans(n_clusters=num_clusters, random_state=0, n_init=10)
     
     if feat == 0 :
@@ -1570,7 +1560,6 @@ def demos_match_cluster(input_info, recommend_demos, iter_idx, num, args, feat =
     
     distances = np.linalg.norm(input_meta_data[:, np.newaxis] - kmeans.cluster_centers_, axis=2)
 
-    # 分配到最近的质心
     cluster_assignments = np.argmin(distances, axis=1)
     list_kmeans_labels = list(kmeans.labels_)
     
@@ -1695,3 +1684,15 @@ def prefix_list(A, B):
         if len(element) >= len(A) and element[:len(A)] == A:
             return True
     return False
+
+def interleave_lists(list_of_lists):
+    max_length = max(len(sublist) for sublist in list_of_lists)
+    
+    result = []
+    
+    for i in range(max_length):
+        for sublist in list_of_lists:
+            if i < len(sublist):
+                result.append(sublist[i])
+    
+    return result

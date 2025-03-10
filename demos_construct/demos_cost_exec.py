@@ -18,10 +18,10 @@ logger.setLevel(logging.DEBUG)
     
 def parse() :
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database", type=str, help="database name", default="tpcds_1")
-    parser.add_argument("--workload", type=str, help="workload path", default="/home/u2023000897/workload/tpcds.sql")
+    parser.add_argument("--database", type=str, help="database name", default="")
+    parser.add_argument("--workload", type=str, help="workload path", default="")
     parser.add_argument("--pattern", type=str, help="index file name pattern", default="index*.sql") # default setting is magicmirror format
-    parser.add_argument("--directory", type=str, help="index file dir", default="/home/u2023000897/magicmirror/results_logs/240625/tpch_1")
+    parser.add_argument("--directory", type=str, help="index file dir", default="")
     parser.add_argument("--output", type=str, help="output file path", default="./results/output.txt")
     
     return parser.parse_args()

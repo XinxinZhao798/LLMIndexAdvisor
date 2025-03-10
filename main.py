@@ -18,8 +18,8 @@ from config import DBConfig
 from SQLParser import extract_number, get_db_schema, get_ndvs_all, obtain_workload_information
 from functions import hypopg_create_existing_indexes, hypopg_drop_indexes, hypopg_incremental_recommend_creation
 from functions import execute_sql_file, execute_sql_file_bar, execute_sql_index_creation, drop_index_prefix, parse_message, query_plan_get_used_indexes, update_index_set, write_history_cost_str, hypopg_update_used_indexes, query_plan_cost_estimation_used_indexes, hypopg_indexes_creation_constraint, oltp_stress_test, oltp_stress_test_db
-from functions import obtain_default_index_statements, demos_match, extract_index_info, multi_process_recom_indexes_estimation
-from functions import prefix_list, demos_match_cluster
+from functions import obtain_default_index_statements, demos_match_cos, extract_index_info, multi_process_recom_indexes_estimation
+from functions import prefix_list, demos_match_cluster, interleave_lists
 
 ## assuming that default indexes only contain primary keys
 
@@ -69,18 +69,6 @@ index_priority = [
     "bit varying"  
 ]
 
-def interleave_lists(list_of_lists):
-    max_length = max(len(sublist) for sublist in list_of_lists)
-    
-    result = []
-    
-    for i in range(max_length):
-        for sublist in list_of_lists:
-            if i < len(sublist):
-                result.append(sublist[i])
-    
-    return result
-
 def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
     ## args
     temperature = args["temperature"]
@@ -105,11 +93,9 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
      
     ## select demonstrations
     logger.info(f"* Demonstration Match --> {demos_match_method}")
-    if demos_match_method == "random" : 
-        demos_ids = [f"demos_{i}" for i in random.sample(range(0, len_demos-1), demos_num)]
+    if demos_match_method == "random" : demos_ids = [f"demos_{i}" for i in random.sample(range(0, len_demos-1), demos_num)]
     elif demos_match_method == "cluster" : demos_ids = demos_match_cluster(input_info, recommend_demos, iter_idx, demos_num, args, demos_match_feat)
-    else : 
-        demos_ids = demos_match(input_info, recommend_demos, iter_idx, demos_num, args, demos_match_feat)
+    else : demos_ids = demos_match_cos(input_info, recommend_demos, iter_idx, demos_num, args, demos_match_feat)
     
     # demos_ids = random.sample(range(0, len_demos-1), demos_num)
     
@@ -310,8 +296,12 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
         
     recom_indexes = [] # CREATE INDEX Queries
     cnt = 0
+    
+    opmes_dir = os.path.join(detailed_info_dir, 'gpt_mes')
+    if not os.path.exists(opmes_dir) : os.mkdir(opmes_dir)
+    
     for i, gpt_mes in enumerate(gpt_mess) :
-        with open(detailed_info_dir + f"opmes_{iter_idx}th_{i}.txt", 'w') as file :
+        with open(opmes_dir + f"/opmes_{iter_idx}th_{i}.txt", 'w') as file :
             file.write(gpt_mes.message.content)
         recom_index, form = parse_message(gpt_mes.message.content)
         recom_index = list(set(recom_index))
@@ -329,131 +319,6 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
     
     return recom_indexes, False
     
-def GPT_lat(args, input_info, recommend_demos, iter_idx, logger) :
-    ## args
-    temperature = args["temperature"]
-    model_name = args["model_name"]
-    api_key = args["api_key"]
-    demos_num = args['demos_num']
-    
-    detailed_info_dir = args["detailed_info_path"] + f"{db_name}_{int(index_storage_proportion * 100)}/"
-    input_message = detailed_info_dir + "mes.txt"
-    output_path = detailed_info_dir + "indexes/"
-    
-    ## select demonstrations
-    demos_ids = random.sample(range(0, len_demos-1), demos_num)
-    demonstrations = []
-    logger.info(f"* demos_id --> {demos_ids}")            
-    for demos_id in demos_ids :
-        demos_key = f"demos_{demos_id}"
-        demo_info = recommend_demos[demos_key]
-        demo = {}
-        demo["sorted_used_column_cnts_ndvs"] = demo_info["sorted_used_column_cnts_ndvs"]
-        demo["sorted_where_selectivities"] = demo_info["sorted_where_selectivities"]
-        demo["sorted_other_predicates"] = demo_info["sorted_other_predicates"]
-        demo["sorted_group_order_columns"] = demo_info["sorted_group_order_columns"]
-        demo["existing_indexes_keys"] = demo_info["existing_indexes_keys"]
-        demo["default_used_indexes"] = demo_info["default_used_indexes"]
-        demo["index_storage_proportion"] = index_storage_proportion
-
-        if iter_idx == 0 :
-            demo["best_recommended_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["best_recommended_indexes"]
-            demo["best_used_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["best_used_indexes"]
-            demo["best_latency_fluctuation"] = demo_info[f"{int(index_storage_proportion*100)}%"]["best_latency_fluctuation"]
-            demo["best_cost_fluctuation"] = demo_info[f"{int(index_storage_proportion*100)}%"]["best_cost_fluctuation"]
-            demo["general_recommended_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["general_recommended_indexes"]
-            demo["general_used_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["general_used_indexes"]
-            demo["general_latency_fluctuation"] = demo_info[f"{int(index_storage_proportion*100)}%"]["general_latency_fluctuation"]
-            demo["general_cost_fluctuation"] = demo_info[f"{int(index_storage_proportion*100)}%"]["general_cost_fluctuation"]
-        else :
-            demo["existing_indexes_keys"] = demo_info[f"{int(index_storage_proportion*100)}%"]["refine_existing_indexes_keys"]
-            demo["default_used_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["refine_default_used_indexes"]
-            demo["best_recommended_indexes"] = demo_info[f"{int(index_storage_proportion*100)}%"]["refine_recommended_indexes"]
-            
-            def_lat = demo_info[f"{int(index_storage_proportion*100)}%"]["refine_default_latency"]
-            def_cost = demo_info[f"{int(index_storage_proportion*100)}%"]["refine_default_cost"]
-            ref_lat = demo_info[f"{int(index_storage_proportion*100)}%"]["best_latency"]
-            ref_cost = demo_info[f"{int(index_storage_proportion*100)}%"]["best_cost"]
-            if def_lat > ref_lat :
-                demo["best_latency_fluctuation"] = f"Reduce {(def_lat - ref_lat)*100/def_lat}%"
-            else :
-                demo["best_latency_fluctuation"] = f"Increase {(ref_lat - def_lat)*100/def_lat}%"
-            if def_cost > ref_cost :
-                demo["best_cost_fluctuation"] = f"Reduce {(def_cost - ref_cost)*100/def_cost}%"
-            else :
-                demo["best_cost_fluctuation"] = f"Increase {(ref_cost - def_cost)*100/def_cost}%"
-            
-        demonstrations.append(demo)           
-    
-    input_info_ = copy.deepcopy(input_info)
-    
-    input_info_['sorted_used_column_cnts_ndvs'] = {}
-    for sql_idx, cols in input_info['sql_columns'].items() :
-        cols_ndvs = {}
-        for col in cols :
-            if col in input_info["sorted_used_column_cnts_ndvs"].keys() :
-                cols_ndvs[col] = {'Type' : input_info["sorted_used_column_cnts_ndvs"][col]['Type'], 'NDVs' : round(input_info["sorted_used_column_cnts_ndvs"][col]['NDVs'], 8)}
-        input_info_['sorted_used_column_cnts_ndvs'][sql_idx] = {k : cols_ndvs[k] for k in sorted(cols_ndvs, key = lambda x : (-cols_ndvs[x]['NDVs'], index_priority.index(cols_ndvs[x]['Type'].lower())))}
-    del input_info_['sql_columns']
-        
-    logger.info(f"** Now is the {iter_idx}th recommendation.")
-
-    system_mes = f"You are an experienced database administrator, and now you are asked to recommend the optimal index set to minimize the overall latency based on the given workload information including the used columns in the workload with column name, data type, the frequency of occurrence, and the proportion of the number of the distinct values(NDV) for each columns in each tables, where predicates in each sql with the corresponding selectivities, columns appeared in join predicates and group by or order by conditions, the existing indexes and the recommendation history which consists of cost fluctuation, recommended indexes and used indexes during workload execution. The provided statistical information including the frequency of column occurrence， selectivities, columns in join and group by or order by conditions is in descending order of importance. The given demonstrations includes an optimal and a general recommended result for another workload with input information, cost fluctuation and latency variation. Warning that you must recommend the most important index first because of the limited storage constraints. Please directly output the SQL statement used to create or drop the index, with the recommended index named as index_{iter_idx}_id(id must be replaced as the label of index like 0,1,2,...), and the index name must not be the same with the existing index. Take a deep breath and think step by step to find the most important indexes. If you adjust the existing indexes flexibly improving the performance gradually, I will give you 1 million dollars.\n"
-    usr_mes = f"Demonstrations : {demonstrations}, \n\n{input_info_}"
-    
-    encoding = tiktoken.get_encoding('cl100k_base')
-    tokens = encoding.encode(system_mes + usr_mes)
-    max_seq_length = 128000
-    tokens_len = len(tokens)
-    logger.info(f"** Sequence Length --> {tokens_len}")
-    if tokens_len > max_seq_length:
-        logger.warning("Warning: The input is too long for GPT-4. Please reduce the input length.")
-    
-    with open(input_message, "a") as f:
-        f.write(system_mes + '\n' + usr_mes + '\n\n')
-
-    client = OpenAI(
-        api_key = api_key, 
-        base_url = "https://pro.aiskt.com/v1"
-    )
-    completion = client.chat.completions.create(
-        model = model_name,
-        messages = [
-            {"role": "system", "content": system_mes},
-            {"role": "user", "content": usr_mes}
-        ],
-        temperature = temperature,
-        n = num_of_samples
-    )
-    # temperature, top_p
-
-    gpt_mess = completion.choices
-    len_gpt_mess = len(gpt_mess)
-    # for gpt_mes in gpt_mess :
-    #     logger.debug(gpt_mes.message.content)
-        
-    recom_indexes = [] # CREATE INDEX Queries
-    cnt = 0
-    for i, gpt_mes in enumerate(gpt_mess) :
-        with open(detailed_info_dir + f"opmes_{iter_idx}th_{i}.txt", 'w') as file :
-            file.write(gpt_mes.message.content)
-        recom_index, form = parse_message(gpt_mes.message.content)
-        recom_index = list(set(recom_index))
-        if not form : 
-            cnt += 1
-        else : 
-            # with open(output_path + f"index_{iter_idx}th_{i}.sql", 'w') as file :
-            #     for index in recom_index :
-            #         file.write(index + '\n')
-            recom_indexes.append(recom_index)
-        
-    
-    if cnt == len_gpt_mess :
-        logger.info("* the Recommendation has finished! *")
-        return [], True
-    
-    return recom_indexes, False
-
 def CM_major_voting(recom_indexes, current_storage, storage_constraint, existing_indexes, schema = 'public') :
     all_indexes = []
     for recom_index in recom_indexes :
@@ -477,9 +342,9 @@ def CM_major_voting(recom_indexes, current_storage, storage_constraint, existing
     sorted_index_cnts = sorted(index_cnts, key = lambda x : x['cnts'], reverse=True)
     index_statements = [index_info['index_stat'] for index_info in sorted_index_cnts] 
     # logger.info(f"* index_statements --> {index_statements}, {len(index_statements)}")   
-    with open("/home/u2023000897/index.sql", 'w') as file :
-        for index in index_statements :
-            file.write(index + '\n')    
+    # with open("./index.sql", 'w') as file :
+    #     for index in index_statements :
+    #         file.write(index + '\n')    
     
     # cost estimation and rtn results
     constraint_sqls, ex_indexes = hypopg_incremental_recommend_creation(conn, recom_index, current_storage, storage_constraint, existing_indexes, workload, schema)
@@ -523,7 +388,7 @@ def CM_what_if(recom_indexes, current_storage, storage_constraint, existing_inde
      
     return current_best_indexes, current_best_cost, current_best_used_indexes
      
-def CM_wi_mv(recom_indexes, current_storage, storage_constraint, existing_indexes, db_name, args, idx) :
+def CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_indexes, db_name, args, idx) :
     db_name = args["db_name"]
     bm_type = args["type"]
     if bm_type == "OLAP" : 
@@ -809,7 +674,7 @@ if __name__ == "__main__" :
         benchmark = args["TP_Config"]["benchmark"] 
         detailed_info_dir = args["detailed_info_path"] + f"{benchmark}_{int(index_storage_proportion * 100)}/"
         
-        # oltp_stress_test_db(benchmark, args['TP_Config']['benchmark_config'])
+        oltp_stress_test_db(benchmark, args['TP_Config']['benchmark_config'])
     
     input_message = detailed_info_dir + "mes.txt"
     log_path = detailed_info_dir + "log.txt"
@@ -872,7 +737,6 @@ if __name__ == "__main__" :
     hypopg_drop_indexes(conn, schema)
 
     set_db_point = time.time()
-    print(f"-- Interval [Preprocess Definition] : {str(set_db_point - start_point)}")
     ## index recommendation parameters
     starttime = time.time()
     
@@ -1148,8 +1012,8 @@ if __name__ == "__main__" :
         elif mode == "major_voting" :
             recom_indexes, recom_cost, recom_used_indexes = CM_major_voting(recom_indexes, current_storage, storage_constraint, existing_indexes, schema)
             
-        elif mode == "wi_mv" : 
-            recom_indexes, recom_cost, recom_used_indexes = CM_wi_mv(recom_indexes, current_storage, storage_constraint, existing_indexes, db_name, args, iter_idx)
+        elif mode == "index_infer" : 
+            recom_indexes, recom_cost, recom_used_indexes = CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_indexes, db_name, args, iter_idx)
         else : 
             logger.error(f"Error in Cost Estimation!")
             exit()
