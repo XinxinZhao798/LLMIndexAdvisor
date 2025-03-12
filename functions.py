@@ -15,7 +15,7 @@ from multiprocessing import Process, Manager, Semaphore, Lock
 from datetime import datetime, timezone, timedelta
 
 from config import DBConfig
-from utils.db_utils import get_table_names_from_db, execute_sql, count_tp_nums_json
+from db_utils import get_table_names_from_db, execute_sql, count_tp_nums_json
 
 import logging
 
