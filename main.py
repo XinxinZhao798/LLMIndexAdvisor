@@ -74,12 +74,12 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
     temperature = args["temperature"]
     model_name = args["model_name"]
     api_key = args["api_key"]
+    base_url = args["base_url"]
     demos_match_method = args["demos_match_method"]
     demos_num = args['demos_num']
     db_name = args["db_name"]
     index_storage_proportion = args["index_storage_proportion"]
     demos_match_feat = args['demos_match_feat']
-    # base_url = args['base_url']
     
     storage_gen = args["storage_gen"]
     
@@ -274,7 +274,7 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, logger) :
 
     client = OpenAI(
         api_key = api_key, 
-        base_url = "https://pro.aiskt.com/v1"
+        base_url = base_url
     )
     completion = client.chat.completions.create(
         model = model_name,
