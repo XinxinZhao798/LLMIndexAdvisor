@@ -77,7 +77,7 @@ python json_agg_cost.py
        "num_of_iterations": 4,
        "index_storage_proportion": 0.5,
        "what_if": true/false,
-       "mode": "wi_mv/what_if/major_voting",
+       "mode": "index_infer/what_if/major_voting",
        "demos_match_method": "cos/random/cluster",
        "storage_gen": false/true,
        "num_of_actual_executions": 3,
