@@ -1,4 +1,4 @@
-# LLMIdxAdvis: Resource-Efficient Index Advisor Utilizing Large Language Model
+# LLMIndexAdvisor: Resource-Efficient Index Advisor Utilizing Large Language Model
 
 We propose an efficient and lightweight LLM-based index advisor, leveraging prompt engineering without extensive fine-tuning to efficiently recommend promising indexes.
 
