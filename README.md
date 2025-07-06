@@ -24,8 +24,8 @@ Step 2 : Install the HypoPG extension according to https://github.com/HypoPG/hyp
 Step 3 : Create the virtual environment with Python = 3.11.5 and activate it.
 
 ```
-conda create -n llmidxadvis python=3.11.5
-conda activate llmidxadvis
+conda create -n llmindexadvisor python=3.11.5
+conda activate llmindexadvisor
 ```
 
 Step 4 : Install the required packages.
@@ -36,7 +36,7 @@ pip install -r requirements.txt
 
 ## Supported Benchmarks
 
-Owing to the characteristics of large language models, LLMIdxAdvis can theoretically support various workload compositions and database schemas. Based on the experimental attempts, we primarily offer two types of input format for the target workload (detailed in configuration file), involving OLAP and OLTP.
+Owing to the characteristics of large language models, LLMIndexAdvisor can theoretically support various workload compositions and database schemas. Based on the experimental attempts, we primarily offer two types of input format for the target workload (detailed in configuration file), involving OLAP and OLTP.
 
 - For OLAP, we typically support the workloads where all SQL statements can be obtained, and take the ``workload.sql`` file path as input information.
 - For OLTP, we set up the configuration specifically to support the OLTP benchmark `benchbase` (refer to https://github.com/cmu-db/benchbase), and take the benchmark name, the directory of transaction samples (under the folder ``./synthetic_data/workloads/oltp_samples``), the directory of  benchbase, the path of the configuration, and the ouput path of sampled benchbase workload as input information.
@@ -55,7 +55,7 @@ python demos_cost_refine.py
 python json_agg_cost.py
 ```
 
-## Using the LLMIdxAdvis
+## Using the LLMIndexAdvisor
 
 1. Modify the relevant configuration `./config/example_config.json`.
 
@@ -96,9 +96,9 @@ python json_agg_cost.py
    }
    ```
 
-2. Run the LLMIdxAdvis.
+2. Run the LLMIndexAdvisor.
 
    ```
-   cd llmidxadvis
+   cd llmindexadvisor
    python main.py --config ./config/example_config.json
    ```
