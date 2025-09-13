@@ -1015,7 +1015,7 @@ if __name__ == "__main__" :
         elif mode == "index_infer" : 
             recom_indexes, recom_cost, recom_used_indexes = CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_indexes, db_name, args, iter_idx)
         else : 
-            logger.error(f"Error in the selection of \"mode\" in the configuration file, which should be set in "what_if", "major_voting", and "index_infer"!")
+            logger.error(f"Error in the selection of \"mode\" in the configuration file, which should be set in \"what_if\", \"major_voting\", and \"index_infer\"!")
             exit()
                      
             
