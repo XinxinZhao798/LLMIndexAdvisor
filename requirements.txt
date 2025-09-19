@@ -22,7 +22,7 @@ markdown-it-py==3.0.0
 mdurl==0.1.2
 multidict==6.1.0
 numpy==2.2.3
-openai==1.65.2
+openai==1.107.2
 pillow==11.1.0
 propcache==0.3.0
 psycopg2-binary==2.9.10

@@ -637,7 +637,7 @@ def hypopg_incremental_recommend_creation(conn, recommend_index, current_storage
                     cursor.execute(get_storage_sql)
                     index_size = cursor.fetchone()[0]/(1024*1024) ## B --> MB
                     if current_storage + index_size > storage_constraint :
-                        logger.info(f"* there is an index exceeding the storage constraint --> {index}")
+                        logger.info(f"[Warning] There is an index exceeding the storage constraint --> {index}")
                         cursor.execute(f"select hypopg_drop_index({indexrelid});")
                         continue
                     current_storage += index_size 
@@ -1100,7 +1100,7 @@ def incremental_recommend_creation(conn, recommend_index, current_storage_, stor
             cursor.execute(get_storage_sql)
             index_size = cursor.fetchone()[0]/(1024*1024) ## B --> MB
             if current_storage + index_size > storage_constraint :
-                logger.info(f"* there is an index exceeding the storage constraint --> {index}")
+                logger.info(f"[Warning] There is an index exceeding the storage constraint --> {index}")
                 cursor.execute(f"select hypopg_drop_index({indexrelid});")
                 continue
             
@@ -1696,3 +1696,13 @@ def interleave_lists(list_of_lists):
                 result.append(sublist[i])
     
     return result
+
+def get_max_numeric_subdir(path="."):
+    max_num = None
+    for entry in os.listdir(path):
+        full_path = os.path.join(path, entry)
+        if os.path.isdir(full_path) and entry.isdigit():
+            num = int(entry)
+            if max_num is None or num > max_num:
+                max_num = num
+    return max_num
