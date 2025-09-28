@@ -872,6 +872,7 @@ def query_plan_get_used_indexes(sqls, conn, existing_indexes, schema = 'public')
     cursor.close()
     
     # logger.info(f"* used_indexes --> {used_indexes}, {len(used_indexes)}")
+    used_indexes = list(used_indexes)
     
     return total_cost, used_indexes
         
