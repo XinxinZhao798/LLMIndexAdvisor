@@ -141,25 +141,6 @@ def is_idx_sql(query):
         return len(parsed) > 0
     except Exception:
         return False
-   
-def get_llm_response(api_key, model_name, system_mes, usr_mes, temperature, num_of_samples):
-    url = 'http://10.77.110.151:10000/get_response'
-    params = {
-        'api_key': api_key,
-        'model_name': model_name,
-        'system_mes': system_mes,
-        'usr_mes': usr_mes,
-        'temperature': temperature,
-        'num_of_samples': num_of_samples
-    }
-
-    response = requests.get(url, params=params)
-
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"Error: {response.status_code}")
-        return None
      
 def parse_message(message) :
     mes = str(message).split('\\n')
