@@ -5,23 +5,16 @@
     "AP_Config": {
         "workload_path": ""
     },
-    "TP_Config": {
-        "benchmark": "",
-        "workload_dir": "",
-        "benchmark_path": "",
-        "benchmark_config": "",
-        "workload_path": ""
-    },
     "retain_percent": 0.6,
     "num_of_iterations": 4,
     "num_of_samples": 8,
-    "index_storage_proportion": 0.6,
+    "index_storage_proportion": 0.0,
     "what_if": true,
     "mode": "index_infer",
     "demos_match_method": "cos",
     "demos_top_n": 8,
     "storage_gen": false,
-    "num_of_actual_executions": 1,
+    "num_of_actual_executions": 3,
     "temperature": 0.8,
     "demos_num": 2,
     "model_name": "",
@@ -30,7 +23,7 @@
     "demos_path": "../demos_info/all.json",
     "demos_meta_data_path": "../demos_info/meta_data/all_cross_meta.json",
     "demos_match_feat": 4,
-    "detailed_info_path": "",
+    "detailed_info_path": "../log/",
     "postgresql_data_dir": "",
     "logger_console": "INFO",
     "logger_file": "INFO"

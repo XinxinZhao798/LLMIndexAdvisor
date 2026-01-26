@@ -22,6 +22,8 @@ from functions import execute_sql_file, execute_sql_file_bar, execute_sql_index_
 from functions import obtain_default_index_statements, demos_match_cos, extract_index_info, multi_process_recom_indexes_estimation
 from functions import prefix_list, demos_match_cluster, interleave_lists, get_max_numeric_subdir
 
+from functions import explain_analyze_get_used_indexes_
+
 ## assuming that default indexes only contain primary keys
 ## benchmark_type as OLTP means the testing benchmark is OLTPBench [Benchbase]
 
@@ -71,6 +73,8 @@ index_priority = [
     "bit varying"  
 ]
 
+summarized_workload_feature = {}
+
 def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
     ## args
     temperature = args["temperature"]
@@ -84,8 +88,7 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
     demos_match_feat = args['demos_match_feat']
     storage_gen = args["storage_gen"]
     
-    current_id = get_max_numeric_subdir(args["detailed_info_path"])
-    detailed_info_dir = os.path.join(args["detailed_info_path"], str(current_id))
+    detailed_info_dir = args["detailed_info_path"]
     if bm_type == "OLAP" : detailed_info_dir = os.path.join(detailed_info_dir, f"{time_str}_{model_name}_{db_name}_{int(index_storage_proportion * 100)}")
     else :
         benchmark = args["TP_Config"]["benchmark"] 
@@ -151,8 +154,7 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
     input_info_copy = copy.deepcopy(input_info)
     input_info_ = {}
     
-    input_info_['Sorted Used Table with the Number of Total Rows'] = sorted(input_info_copy['table_rows'].items(), key = lambda x : -x[1])
-    
+    input_info_['Sorted Used Table with the Number of Total Rows'] = sorted(input_info_copy['table_rows'].items(), key = lambda x : -x[1]) # {k : v for k, v in sorted(input_info_copy['table_rows'].items(), key = lambda x : -x[1])}
     input_info_['Sorted Column NDV in SQL Level'] = {}
     if type(list(input_info_copy['sql_columns'].values())[0]) == dict : # for SQL information with Counts
         for sql_idx, sql_info in input_info_copy['sql_columns'].items() :
@@ -182,26 +184,25 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
 
     logger.info(f"** Now is the {iter_idx}th recommendation.")
 
-    system_mes_ = f"You are an experienced database administrator, and now you are asked to recommend the optimal index set to minimize the overall cost. Some well-defined demonstrations are provided as a reference, where the input information includes the columns' names with their proportion of number of the distinct values in each sql, columns appeared in where predicates with the selectivities under their conditions and their counts in the workload, columns appeared in join predicates and group by or order by conditions with their counts in the workload, existing indexes, and the output information includes the optimal index management statements. For the target workload, except the input information provided in the demonstrations, I will additionally offer the used tables with their total rows and remain available storage (in MB) as the reference for index recommendation within the constraints. Warning that you should consider the characteristics of the entire workload, avoiding the index interaction or redundancy that can cause performance degradation. You must recommend the most important and available index first due to the constraints, and you can drop the existing indexes to create more efficient index if there is no significant performance improvement. As a database expert, please directly output the SQL statement used to create or drop the index as your optimal recommended indexes choice, and the new index can name as (table_name)_(col1)_(col2)_idx."
-    if iter_idx == 0 :
-        system_mes = system_mes_ + f'The number of recommended indexes should be at least {int(len_workload * index_storage_proportion)} and as many as possible.'
-    else :
-        system_mes = system_mes_
-    
+    system_mes_ = f"# TASK OVERVIEW :\n You are an experienced database administrator, and now you are asked to recommend the optimal index set to minimize the overall cost. Some well-defined demonstrations are provided as a reference, where the input information includes the columns' names with their proportion of number of the distinct values in each sql, columns appeared in where predicates with the selectivities under their conditions and their counts in the workload, columns appeared in join predicates and group by or order by conditions with their counts in the workload, existing indexes, and the output information includes the optimal index management statements. For the target workload, except the input information provided in the demonstrations, I will additionally offer the used tables with their total rows and remain available storage (in MB) as the reference for index recommendation within the constraints. Warning that you should consider the characteristics of the entire workload, avoiding the index interaction or redundancy that can cause performance degradation. You must recommend the most important and available index first due to the constraints, and you can drop the existing indexes to create more efficient index if there is no significant performance improvement. As a database expert, please directly output the SQL statement used to create or drop the index as your optimal recommended indexes choice, and the new index can name as (table_name)_(col1)_(col2)_idx.\n\n"
+    system_mes = system_mes_
     
     usr_mes = ""
     if len(demonstrations) != 0 :
         for i, demon in enumerate(demonstrations) :
-            usr_mes += f"# Demonstration {i} : {demon}\n"
-    usr_mes += f"# Input Information : {input_info_}\n"
-    usr_mes += f"\nPlease think step by step." 
+            usr_mes += f"# Demonstration {i} :\n{demon}\n\n"
+    usr_mes += f"# Input Information :\n{input_info_}\n"
+    usr_mes += f"\nPlease think step by step about the relationship between the input information and the optimal recommended indexes, and then directly output the optimal recommended index statements. Do not directly copy the index statements in the demonstrations, which could not fit the current workload well. " 
     
-    
+    opmes_dir = os.path.join(detailed_info_dir, 'llm_mes')
+    if not os.path.exists(opmes_dir) : os.mkdir(opmes_dir)
+        
     # LLM Inference
     encoding = tiktoken.encoding_for_model("gpt-4o")
     tokens = encoding.encode(system_mes + usr_mes)
     max_seq_length = 128000
     tokens_len = len(tokens)
+    logger.info(f"-- Input Sequence Length is {tokens_len} --")
     if tokens_len > max_seq_length:
         logger.warning("Warning: The input is too long for GPT-4. Please reduce the input length.")
     
@@ -243,9 +244,6 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
     llm_mess = completion.choices
     len_llm_mess = len(llm_mess)
     
-    opmes_dir = os.path.join(detailed_info_dir, 'llm_mes')
-    if not os.path.exists(opmes_dir) : os.mkdir(opmes_dir)
-    
     recom_indexes = [] # CREATE INDEX Queries
     cnt = 0
     for i, llm_mes in enumerate(llm_mess) :
@@ -263,7 +261,7 @@ def GPT_whatif(args, input_info, recommend_demos, iter_idx, time_str, logger) :
         return [], True
     
     return recom_indexes, False
-    
+   
 def CM_major_voting(recom_indexes, current_storage, storage_constraint, existing_indexes, detailed_info_dir, iter_idx, schema = 'public') :
     logger.info(f"[CM_Major_Voting] Aggregating the Index-Guided Major Voting Option ...")
     
@@ -355,8 +353,7 @@ def CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_
     bm_type = args["type"]
     schema = args['schema']
     
-    current_id = get_max_numeric_subdir(args["detailed_info_path"])
-    detailed_info_dir = os.path.join(args["detailed_info_path"], str(current_id))
+    detailed_info_dir = args["detailed_info_path"]
     if bm_type == "OLAP" : detailed_info_dir = os.path.join(detailed_info_dir, f"{time_str}_{model_name}_{db_name}_{int(index_storage_proportion * 100)}")
     else :
         benchmark = args["TP_Config"]["benchmark"] 
@@ -425,6 +422,131 @@ def CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_
     
     return current_best_indexes_constraint, current_best_cost, current_best_used_indexes
 
+def CM_index_infer_lat(recom_indexes, current_storage, storage_constraint, existing_indexes, time_str, args, iter_idx) :
+    ## what-if hypothetical indexes creation [recom_indexes, forms] and evaluation
+    recommend_tcost = []
+    recommend_constraint_sqls = []
+    total_used_indexes = []
+    
+    db_name = args["db_name"]
+    bm_type = args["type"]
+    schema = args['schema']
+    pg_data_dir = args['postgresql_data_dir']
+    if args["type"] == "OLAP" : workload_path = args["AP_Config"]["workload_path"]
+    else : workload_path = args["TP_Config"]["workload_path"]
+    
+    detailed_info_dir = args["detailed_info_path"]
+    if bm_type == "OLAP" : detailed_info_dir = os.path.join(detailed_info_dir, f"{time_str}_{model_name}_{db_name}_{int(index_storage_proportion * 100)}")
+    else :
+        benchmark = args["TP_Config"]["benchmark"] 
+        detailed_info_dir = os.path.join(detailed_info_dir, f"{model_name}_{benchmark}_{int(index_storage_proportion * 100)}")
+    
+    ## generate major voting results
+    all_indexes = interleave_lists(recom_indexes) # merge indexes with importance order
+    
+    create_index_cnts = []
+    drop_index_cnts = {}
+    # extract (table.column : freq, indexes) / (index : freq)
+    for index_stat in all_indexes :
+        match = drop_index_regex.match(index_stat) # drop index from existing indexes
+        if match :
+            index_name = match.group(2)
+            if index_name in drop_index_cnts.keys() :
+                drop_index_cnts[index_name] += 1
+            else :
+                drop_index_cnts[index_name] = 1
+        
+        match = create_index_regex.match(index_stat)
+        if match :
+            if index_stat not in [index_cnt['index_stat'] for index_cnt in create_index_cnts]:
+                column_names = [col.strip() for col in match.group(5).split(',')]
+                create_index_cnts.append({'index_stat' : index_stat, 'cnts' : 1, 'column_names' : column_names})
+            else :
+                for index_info in create_index_cnts :
+                    if index_stat == index_info['index_stat'] : 
+                        create_index_cnts[create_index_cnts.index(index_info)]['cnts'] += 1
+                        break
+            
+    sorted_index_cnts = sorted(create_index_cnts, key = lambda x : x['cnts'], reverse=True)
+
+    for i, index_info in enumerate(sorted_index_cnts) : # Merging indexes with the same prefix
+        if len(index_info['column_names']) > 1 and index_info['cnts'] > 1 :
+            for j, index_i in enumerate(sorted_index_cnts) :
+                if j < i and prefix_list(index_i['column_names'], [index_info['column_names']]) :
+                    sorted_index_cnts[sorted_index_cnts.index(index_info)]['cnts'] += index_i['cnts']
+                    sorted_index_cnts.remove(index_i)
+                    i = i - 1
+    sorted_index_cnts = sorted(create_index_cnts, key = lambda x : x['cnts'], reverse=True)
+    
+    sorted_drop_indexes = dict(sorted(drop_index_cnts.items(), key = lambda x : -x[1]))
+    drop_index_stats = [f"DROP INDEX IF EXISTS {name}" for name in sorted_drop_indexes.keys() if sorted_drop_indexes[name]!=1]
+    len_drop_index_stats = len(drop_index_stats)
+    
+    if drop_index_stats != []: mv_index_stats = drop_index_stats[:len_drop_index_stats] + [index_info['index_stat'] for index_info in sorted_index_cnts]
+    else : mv_index_stats = [index_info['index_stat'] for index_info in sorted_index_cnts]
+    
+    recom_indexes.append(mv_index_stats)
+    
+    logger.info(f"[CM_index_infer_lat] Recommendations' Number is {len(recom_indexes)}")
+    
+    config = DBConfig()
+    temp_conn = psycopg2.connect(
+        dbname = db_name,
+        user = config.user,
+        password = config.password,
+        host = config.host,
+        port = config.port
+    ) 
+    
+    recommend_tcost, recommend_constraint_sqls, total_used_indexes = list(), list(), list()
+    threshold = default_cost
+    for i, recom_index in enumerate(recom_indexes) : 
+        # updating existing indexes
+        _, existing_indexes = hypopg_create_existing_indexes(temp_conn, existing_indexes, schema)
+        # returned ex_indexes contains constraint indexes creation [for hypopg]
+        constraint_sqls, ex_indexes = hypopg_incremental_recommend_creation(temp_conn, recom_index, current_storage, storage_constraint, existing_indexes, workload, schema)
+        _, used_indexes = query_plan_get_used_indexes(workload, temp_conn, ex_indexes, schema = 'public')
+        hypopg_drop_indexes(temp_conn, schema)
+        
+        ex_indexes_wo_pk = [k for k in ex_indexes.keys() if 'unique index' not in k.lower() and '_pkey' not in k.lower()]
+        logger.info(f"[CM_index_infer_lat] Now is the {i}th Recommendation Evaluation with {len(list(ex_indexes.keys()))} ({len(ex_indexes_wo_pk)}, {len(constraint_sqls)}) Indexes ...")
+        _ = execute_sql_index_creation(temp_conn, ex_indexes_wo_pk)
+        
+        current_exec_time, bar = execute_sql_file_bar(temp_conn, workload_path, threshold)
+        if current_exec_time < threshold : threshold = current_exec_time
+        logger.info(f"[CM_index_infer_lat] Current Estimated Cost is {current_exec_time} with {len(constraint_sqls)} New Indexes.")
+        drop_index_prefix(temp_conn, db_name, pg_data_dir, schema)
+        
+        recommend_tcost.append((current_exec_time, bar))
+        recommend_constraint_sqls.append(constraint_sqls)
+        total_used_indexes.append(used_indexes)
+        
+    for i, recom_indexes_ in enumerate(recommend_constraint_sqls) :
+        with open(os.path.join(detailed_info_dir, f"indexes/index_{iter_idx}th_{i}.sql"), 'w') as file :
+            for index in recom_indexes_ :
+                file.write(index + '\n')
+
+    total_costs = [i[0] for i in recommend_tcost]
+    current_best_cost = min(total_costs)
+    current_best_bar = False
+    for recom_cost in recommend_tcost :
+        if recom_cost[0] == current_best_cost :
+            current_best_bar = recom_cost[1]
+            break
+    if not current_best_bar :
+        current_best_indexes = recom_indexes[total_costs.index(current_best_cost)]
+        current_best_indexes_constraint = recommend_constraint_sqls[total_costs.index(current_best_cost)]
+        current_best_used_indexes = total_used_indexes[total_costs.index(current_best_cost)]
+        logger.info(f"[CM_index_infer_lat] Current Best Estimated Cost is {current_best_cost} / [Default : {default_cost}] [{total_costs.index(current_best_cost)} --> {len(current_best_indexes_constraint)}, {len(current_best_used_indexes)}]")
+    else :
+        current_best_cost = default_cost
+        current_best_indexes = []
+        current_best_indexes_constraint = []
+        current_best_used_indexes = default_used_indexes
+        logger.info(f"[CM_index_infer_lat] Current Best Estimated Cost is {current_best_cost} [Default Cost]")
+    
+    return current_best_indexes_constraint, current_best_cost, current_best_used_indexes
+
 def Actual_Exec(historical_info, historical_costs, historical_costs_str, args, detailed_info_dir, logger) :    
     logger.info("-- Actual Execution Evaluation --")
     
@@ -435,7 +557,7 @@ def Actual_Exec(historical_info, historical_costs, historical_costs_str, args, d
     index_path = os.path.join(detailed_info_dir, "index.sql")
     
     drop_index_sql = f"select indexname from pg_indexes where indexname not in (select conname from pg_constraint where contype = 'p') and schemaname = '{schema}';"
-    drop_index_prefix(conn, drop_index_sql)
+    drop_index_prefix(conn, args["db_name"], args["postgresql_data_dir"], schema, drop_index_sql)
     
     # test execution
     if bm_type == 'OLAP' :
@@ -450,7 +572,6 @@ def Actual_Exec(historical_info, historical_costs, historical_costs_str, args, d
     final_indexes = []
     
     for idx, indexes in enumerate(historical_indexes) :
-        # drop_index_prefix(conn, drop_index_sql)
         if indexes != [] : # update all used indexes
             final_indexes = update_index_set(indexes, all_used_indexes[idx], final_indexes)   
             
@@ -474,23 +595,35 @@ def Actual_Exec(historical_info, historical_costs, historical_costs_str, args, d
                     logger.info(f"* Now is the {i}th Execution.")
                     if indexes == [] :
                         t = execute_sql_file(conn, workload_path)
+                        bar = False
                     else :
-                        t = execute_sql_file_bar(conn, workload_path, default_execution_time)
-                    results_set.add(t)
+                        t, bar = execute_sql_file_bar(conn, workload_path, default_execution_time)
+                    results_set.add((t, bar))
             else :
                 for i in range(num_of_actual_executions) :
                     logger.info(f"* Now is the {i}th Execution.")
                     result = oltp_stress_test(args['TP_Config']['benchmark'], args['TP_Config']['benchmark_config'])
                     results_set.add(result)
         
-            avg_result = statistics.median(results_set)
+            avg_result = statistics.median([t[0] for t in results_set])
             if indexes == [] : 
-                default_result = avg_result
-                logger.info(f"* the Default Execution Time is {avg_result}.")
+                default_execution_time = avg_result
+                logger.info(f"* Default Execution Time is {avg_result}.")
             if idx == historical_costs.index(estimated_best) : 
+                cost_reduction = ((default_execution_time - avg_result) * 100) / default_execution_time
+                
+                incre = False
+                if cost_reduction < 0 : incre = True 
+                
                 logger.info(f"**** This is the Best Estimated Result. ****")
                 logger.info(f"* the Execution Time of the Best Recommendation Result in the {idx}th iteration is {avg_result}.")
-                logger.info(f"* the Cost Reduction of the Best Recommendation Result in the {idx}th iteration is {historical_costs_str[idx]}.")
+                current_bar = False
+                for res in results_set :
+                    if res[0] == avg_result :
+                        current_bar = res[1]
+                        break
+                if incre : logger.info(f"* the Execution Time has Increased by {-cost_reduction}% [Trigger Bar : {current_bar}].")
+                else : logger.info(f"* the Execution Time has Reduced by {cost_reduction}%.")
                 
                 return
    
@@ -539,8 +672,8 @@ def What_If(historical_info, historical_costs, historical_costs_str, args, detai
                         file.write(f"{index}\n")
                 
                 logger.info(f"**** This is the Best Estimated Result. ****")
-                logger.info(f"* the Execution Time of the Best Recommendation Result in the {idx}th iteration is {estimated_best}, with Current Execution Cost {final_cost}.")
-                logger.info(f"* the Cost Reduction of the Best Recommendation Result in the {idx}th iteration is {historical_costs_str[idx]}, with Current Execution Ratio {((def_cost - final_cost) * 100) / def_cost}%.")
+                logger.info(f"* the Execution Time of the Best Recommendation Result in the {idx}th iteration is {estimated_best}.") # , with Current Execution Cost {final_cost}
+                logger.info(f"* the Cost Reduction of the Best Recommendation Result in the {idx}th iteration is {historical_costs_str[idx].split('than')[0].strip().replace('reduce', 'reduced by')}%.") # , with Current Execution Ratio {((def_cost - final_cost) * 100) / def_cost}%
                 
                 return
         else :
@@ -570,19 +703,19 @@ if __name__ == "__main__" :
     api_key = args["api_key"]
     demos_num = args['demos_num']
     schema = args['schema']
+    retain_percent = args['retain_percent']
+    postgresql_data_dir = args['postgresql_data_dir']
     
     # initialize detailed info path
     if not os.path.exists(args["detailed_info_path"]) : os.makedirs(args["detailed_info_path"])
-    current_id = get_max_numeric_subdir(args["detailed_info_path"])
-    current_id = -1
-    detailed_info_dir = os.path.join(args["detailed_info_path"], str(current_id + 1))
+    detailed_info_dir = args["detailed_info_path"]
+    
     
     now = datetime.now()
     time_str = now.strftime("%y%m%d%H%M%S")
     
     if bm_type == "OLAP" : detailed_info_dir = os.path.join(detailed_info_dir, f"{time_str}_{model_name}_{db_name}_{int(index_storage_proportion * 100)}")
     else :
-        # detailed_info_dir = args["detailed_info_path"] + f"{benchmark}_{int(index_storage_proportion * 100)}/"
         benchmark = args["TP_Config"]["benchmark"] 
         detailed_info_dir = os.path.join(detailed_info_dir, f"{model_name}_{benchmark}_{int(index_storage_proportion * 100)}")
         
@@ -645,19 +778,16 @@ if __name__ == "__main__" :
 
     ## storage_constraint
     drop_index_sql = f"select indexname from pg_indexes where indexname not in (select conname from pg_constraint where contype = 'p') and schemaname = '{schema}';"
-    drop_index_prefix(conn, drop_index_sql)
+    drop_index_prefix(conn, db_name, postgresql_data_dir, schema, drop_index_sql)
     hypopg_drop_indexes(conn, schema)
 
     set_db_point = time.time()
-    ## index recommendation parameters
-    starttime = time.time()
     
     cursor = conn.cursor()
     cursor.execute(f"select pg_database_size('{db_name}');")
     storage_constraint = (cursor.fetchone()[0] / ( 1024 * 1024 )) * index_storage_proportion
     conn.commit()
     cursor.close()
-    
     
     ## Obtain Input Information : SQLs, selectivity, NDV
     # workload_path + get_db_schema    
@@ -722,8 +852,18 @@ if __name__ == "__main__" :
     with open(workload_path, "r") as f:
         workload = f.readlines()
     len_workload = len(workload)
-    logger.info("* Get workload")    
+    logger.info("* Get workload")  
     
+    existing_indexes_keys, index_infos = obtain_default_index_statements(db_name, schema_path, schema) # only consider the default indexes contains pk
+    existing_indexes = {}
+    
+    if mode == "index_infer_lat" : 
+        _, _, _ = explain_analyze_get_used_indexes_(workload, conn) 
+        logger.info(f"[Finish the Test Case for Latency Instruction.]")
+        
+    ## index recommendation parameters
+    starttime = time.time()
+
     # Database Schema
     used_column_info = []
     only_column_names = []
@@ -733,8 +873,6 @@ if __name__ == "__main__" :
     
     workload_infos, used_column_info = obtain_workload_information(workload, conn, db_name, schema_path, schema = schema)
     logger.info("* Finish workload parsing")
-    # print(len(list(workload_infos['where_selectivities'].keys())))
-    # exit()
 
     for column in used_column_info :
         only_column = column[0].split('.')[1].split(':')[0]
@@ -824,9 +962,7 @@ if __name__ == "__main__" :
     logger.info("* Get NDVs")
     
     # Sorting by Feature Importance
-    # sorted_keys = sorted(used_column_cnts_ndvs, key = lambda x : (-used_column_cnts_ndvs[x]['Counts'], -used_column_cnts_ndvs[x]['NDVs'], -used_column_cnts_ndvs[x]['Rows'], index_priority.index(used_column_cnts_ndvs[x]['Type'].lower()) if used_column_cnts_ndvs[x]['Type'] in index_priority else float('inf'), x))
     sorted_keys = sorted(used_column_cnts_ndvs, key = lambda x : (-used_column_cnts_ndvs[x]['NDV_Rows'], -used_column_cnts_ndvs[x]['Counts'], index_priority.index(used_column_cnts_ndvs[x]['Type'].lower()) if used_column_cnts_ndvs[x]['Type'] in index_priority else float('inf'), x))
-    # sorted_keys = sorted(used_column_cnts_ndvs, key = lambda x : (-used_column_cnts_ndvs[x]['Counts'], -used_column_cnts_ndvs[x]['NDVs'], index_priority.index(used_column_cnts_ndvs[x]['Type'].lower()) if used_column_cnts_ndvs[x]['Type'] in index_priority else float('inf'), x))
     sorted_used_column_cnts_ndvs = {k : used_column_cnts_ndvs[k] for k in sorted_keys}
     sorted_keys = sorted(where_selectivities, key = lambda x : (where_selectivities[x], x))
     sorted_where_selectivities = {k : where_selectivities[k] for k in sorted_keys}
@@ -839,8 +975,6 @@ if __name__ == "__main__" :
     sql_columns = workload_infos['sql_columns']
         
     # Obtain Existing Indexes
-    existing_indexes_keys, index_infos = obtain_default_index_statements(db_name, schema_path, schema) # only consider the default indexes contains pk
-    existing_indexes = {}
     for key in existing_indexes_keys :
         existing_indexes[key] = 0
     current_storage = 0
@@ -852,16 +986,32 @@ if __name__ == "__main__" :
     historical_costs = []
     best_indexes = []
     ## default environment cost
-    default_cost, used_indexes = query_plan_get_used_indexes(workload, conn, existing_indexes_keys, schema)
-    historical_info.append({"best_indexes" : best_indexes, "used_indexes" : used_indexes})
+    global default_cost
+    global default_used_indexes
+    if mode != "index_infer_lat" : default_cost, default_used_indexes = query_plan_get_used_indexes(workload, conn, existing_indexes_keys, schema)
+    else :  _, default_cost, default_used_indexes = explain_analyze_get_used_indexes_(workload, conn)
+    logger.info(f"Default Cost is {default_cost} with {len(default_used_indexes)} used indexes. [Existing Indexes Number : {len(existing_indexes_keys)}]")
+    historical_info.append({"best_indexes" : best_indexes, "used_indexes" : default_used_indexes})
     historical_costs_str.append("default cost")
     historical_costs.append(default_cost)
     history = dict(zip(historical_costs_str, historical_info))
     
-    ## aggregate same sql info
+    ## [sql_columns] retain top 60% [sql_columns length equal to workload length]
+    sql_columns_top = {}
+    sql_costs = []
+    hypopg_drop_indexes(conn, schema)
+    for i, sql in enumerate(workload) :
+        total_cost, _ = query_plan_get_used_indexes([sql], conn, existing_indexes_keys, schema)
+        sql_costs.append((i, total_cost))
+    sql_costs = sorted(sql_costs, key = lambda x : -x[1], reverse=True)
+    retain_num = int(retain_percent * len(workload))
+    for i in range(retain_num) :
+        sql_columns_top[f"SQL_{i}"] = sql_columns[f"SQL_{sql_costs[i][0]}"]
+    
+    ## Aggregate same sql info with count attributes
     sql_columns_agg = {}
     sql_id = 0
-    for sql, columns in sql_columns.items() :
+    for sql, columns in sql_columns_top.items() :
         if columns in [v['Columns'] for v in sql_columns_agg.values()] :
             for sql_, columns_ in sql_columns_agg.items() :
                 if columns == columns_['Columns'] : 
@@ -871,7 +1021,7 @@ if __name__ == "__main__" :
             sql_columns_agg[f"SQL_{sql_id}"] = {'Columns' : columns, 'Counts' : 1}
             sql_id += 1
     sql_columns_agg = dict(sorted(sql_columns_agg.items(), key=lambda x: -x[1]['Counts']))
-    if list(set([v['Counts'] for v in sql_columns_agg.values()])) == [1] : sql_columns_agg = sql_columns
+    if list(set([v['Counts'] for v in sql_columns_agg.values()])) == [1] : sql_columns_agg = sql_columns_top
     
     
     # Input Information Dictionary
@@ -880,7 +1030,7 @@ if __name__ == "__main__" :
 
     
     ## save the results to the output_path    
-    logger.info(f"[Model: {model_name}][Mode: {mode}] Temperature: {temperature}, Samples_N: {num_of_samples}")
+    logger.info(f"[Model: {model_name}][Mode: {mode}] Temperature: {temperature}, Samples_N: {num_of_samples}, Iterations: {num_of_iterations}")
     
     shutil.rmtree(output_path)
     os.mkdir(output_path)
@@ -909,6 +1059,9 @@ if __name__ == "__main__" :
         elif mode == "index_infer" : 
             recom_indexes, recom_cost, recom_used_indexes = CM_index_infer(recom_indexes, current_storage, storage_constraint, existing_indexes, time_str, args, iter_idx)
         
+        elif mode == "index_infer_lat" :
+            recom_indexes, recom_cost, recom_used_indexes = CM_index_infer_lat(recom_indexes, current_storage, storage_constraint, existing_indexes, time_str, args, iter_idx)            
+        
         else : 
             logger.error(f"Error in the selection of \"mode\" in the configuration file, which should be set in \"what_if\", \"major_voting\", and \"index_infer\"!")
             exit()
@@ -929,7 +1082,7 @@ if __name__ == "__main__" :
             break
         
         # Updating historical information
-        historical_info.append({"best_indexes" : recom_indexes, "used_indexes" : recom_used_indexes})
+        historical_info.append({"best_indexes" : recom_indexes, "used_indexes" : recom_used_indexes}) # used_indexes with only index name
         historical_costs.append(recom_cost)
         
         
@@ -937,31 +1090,60 @@ if __name__ == "__main__" :
         if not keep_ex_indexes : 
             best_indexes = recom_indexes
             best_used_indexes = list(recom_used_indexes)
-
             
         historical_costs_str = write_history_cost_str(historical_info, historical_costs, historical_costs_str)
         history = dict(zip(historical_costs_str, historical_info))
         
-
-        # Updating Current State
-        existing_indexes, current_storage = hypopg_update_used_indexes(conn, recom_used_indexes, existing_indexes, recom_indexes, schema)
-        
+        # Updating Current [best_indexes + best_used_indexes]
+        existing_indexes, current_storage = hypopg_update_used_indexes(conn, best_used_indexes, existing_indexes, best_indexes, schema)
+        if mode == "index_infer_lat" : 
+            hypopg_drop_indexes(conn, schema)
+            
+            # obtain index creation statements 
+            pk_indexes = {}
+            for k, v in existing_indexes.items() :
+                if int(v) == 0 :
+                    pk_indexes[k] = v
+    
+            index_creation_sqls = []
+            for index in best_used_indexes :
+                find = False
+                # if index has already existed
+                if any(index in index_.split() for index_ in pk_indexes.keys()) : continue
+                # index not existed
+                for index_ in existing_indexes.keys() :
+                    if index in index_.split() : 
+                        index_creation_sqls.append(index_)
+                        find = True
+                        break
+                if not find :
+                    for index_ in best_indexes :
+                        if index in index_.split() :
+                            index_creation_sqls.append(index_)
+                            find = True
+                            break
+                if not find :
+                    print(f"Error that used index {index} is not in any set!")
+                    exit()
+            
+            logger.info(f"* Current Indexes Recommendation (Length = {len(index_creation_sqls)})")
+            _ = execute_sql_index_creation(conn, index_creation_sqls)
         
         # Updating Input Information
         input_info['history'] = history
         input_info['remain_avail_storage'] = f"{int(storage_constraint - current_storage)}"
         input_info['existing_indexes'] = list(existing_indexes.keys())
         
-
-    logger.info(f"* Historical Recommendation Indexes Length : {[len(historical_index) for historical_index in historical_info]}")
     logger.info(f"* Historical Costs Fluctuation : {historical_costs_str}")
+    logger.info(f"* Historical Recommended Indexes Length : {[len(info['best_indexes']) for info in historical_info]}")
+    logger.info(f"* Historical Recommended Used Indexes Length : {[len(info['used_indexes']) for info in historical_info]}")
     stoptime = time.time()
     logger.info(f"-- Online Recommendation Time is {stoptime - starttime}.")
     logger.info("-----------------------------------------------------------------------------")
     
     
     ## Final Evaluation
-    drop_index_prefix(conn, drop_index_sql)
+    drop_index_prefix(conn, db_name, postgresql_data_dir, schema, drop_index_sql)
     hypopg_drop_indexes(conn, schema)
     if what_if :
         What_If(historical_info, historical_costs, historical_costs_str, args, detailed_info_dir, logger, conn)

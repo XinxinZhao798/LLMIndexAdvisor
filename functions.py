@@ -10,6 +10,8 @@ import subprocess
 import time
 import random
 import numpy as np
+import tiktoken
+from openai import OpenAI
 from sklearn.cluster import KMeans
 from multiprocessing import Process, Manager, Semaphore, Lock
 from datetime import datetime, timezone, timedelta
@@ -54,8 +56,18 @@ drop_index_regex = re.compile(
     re.IGNORECASE
 )
 
+    
 logger = logging.getLogger('log')
 root_dir = os.path.dirname(os.path.abspath(__file__))
+
+def postgresql_restart(pg_data_dir) : 
+    try:
+        subprocess.run(["pg_ctl", "-D", pg_data_dir, "-l", "~/logfile", "restart"], check=True)
+        logger.info(f"PostgreSQL restarted successfully.")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error restarting PostgreSQL: {e}")
+        return False
 
 def execute_sql_view(sql, conn):
     results = None
@@ -143,7 +155,7 @@ def is_idx_sql(query):
         return False
    
 def get_llm_response(api_key, model_name, system_mes, usr_mes, temperature, num_of_samples):
-    url = 'http://10.77.110.151:10000/get_response'
+    url = ''
     params = {
         'api_key': api_key,
         'model_name': model_name,
@@ -239,12 +251,14 @@ def execute_sql_file(conn, sql_file_path, schema = "public", threshold = 5000, o
                     conn.rollback()
                     continue
 
-    return execution_time
+    return execution_time * 0.001
  
-def execute_sql_file_bar(conn, sql_file_path, threshold, one=True):
+def execute_sql_file_bar(conn, sql_file_path, threshold, schema = "public", one=True):
     execution_time = 0
+    bar = False
 
     with conn.cursor() as cur:
+        cur.execute(f"set search_path to {schema}")
         ## workload execution
         with open(sql_file_path, 'r') as sql_file:
             sql_commands = sql_file.readlines()
@@ -267,6 +281,7 @@ def execute_sql_file_bar(conn, sql_file_path, threshold, one=True):
                     execution_time += plan["Actual Total Time"]
                     if execution_time >= threshold * 1000 : 
                         logger.info(f"* current sql idx is {idx}.")
+                        bar = True
                         break
                     logger.debug(f"* current sql execution time is {tmp} and now the actual total time is {execution_time}.")
                 except psycopg2.OperationalError as error :
@@ -275,11 +290,13 @@ def execute_sql_file_bar(conn, sql_file_path, threshold, one=True):
                     conn.rollback()
                     break
 
-    return execution_time
+    return execution_time * 0.001, bar
 
-def drop_index_prefix(conn, SQL = "select indexname from pg_indexes where schemaname NOT IN ('pg_catalog', 'information_schema') and indexname not like '%_pkey';" ) :
+def drop_index_prefix(conn, db_name, pg_data_dir, schema = 'public', SQL = "select indexname from pg_indexes where schemaname NOT IN ('pg_catalog', 'information_schema') and indexname not like '%_pkey';" ) :
     index_name = SQL
-    index_name = "SELECT indexname, tablename FROM pg_indexes WHERE schemaname = 'public' AND indexname NOT IN (SELECT conname FROM pg_constraint WHERE contype = 'p');"
+    index_name = f"SELECT indexname, tablename FROM pg_indexes WHERE schemaname = '{schema}' AND indexname NOT IN (SELECT conname FROM pg_constraint WHERE contype = 'p');"
+    reconn = False
+    
     # print(index_name)  
     cur = conn.cursor()
     cur.execute(index_name)
@@ -308,11 +325,38 @@ def drop_index_prefix(conn, SQL = "select indexname from pg_indexes where schema
                     conn.rollback()
                     continue
             else:
+                # logger.warning(f"No constraint found for index {indexname} on table {tablename}.")
+                # logger.warning(f"[Warning] DROP INDEX failed. Maybe the database need to be restarted.")
                 print(f"No constraint found for index {indexname} on table {tablename}.")
-            
-            continue
+                print(f"[Warning] DROP INDEX failed. Maybe the database need to be restarted.")
+                
+                reconn = True
+                conn.close()
+                connect_state = postgresql_restart(pg_data_dir)
+                if connect_state : 
+                    config = DBConfig()
+                    conn = psycopg2.connect(
+                        dbname = db_name,
+                        user = config.user,
+                        password = config.password,
+                        host = config.host,
+                        port = config.port
+                    ) 
+                    cur = conn.cursor()
+                    try :
+                        drop_stmt = "drop index {}".format(indexname)
+                        cur.execute(drop_stmt)
+                    except psycopg2.Error as e:
+                        logger.error(f"Error dropping index {indexname}: {e}")
+                        conn.rollback()
+                        continue
+                else : 
+                    logger.error(f"Error reconnecting to the database after restart.")
+                    exit()
         
     conn.commit()
+    
+    return reconn, conn
 
 def oltp_stress_test_db(benchmark, benchmark_config) :
     stamp = int(time.time())
@@ -421,7 +465,7 @@ def get_table_info(conn, db_name, schema = 'public') :
         
         sql = f"""SELECT tablename
             FROM pg_tables
-            WHERE schemaname = 'public';
+            WHERE schemaname = '{schema}';
             """
         cursor.execute(sql)
         tables = cursor.fetchall()
@@ -618,13 +662,13 @@ def hypopg_incremental_recommend_creation(conn, recommend_index, current_storage
                 index_struct = {"table" : match.group(3), "columns" : [col.strip() for col in match.group(5).split(",")]}
                 if index_struct not in existed_indexes.values() :
                     index_name = match.group(1)
-                    if index_name in list(existed_indexes.keys()) : index = index.replace(index_name, f"{index_name}_")
+                    if index_name in list(existed_indexes.keys()) : index = index.replace(index_name, f"{index_name}_") # avoiding the same index name
                     hypopg_creation = f"SELECT hypopg_create_index('{index}');"
                     try :
                         cursor.execute(hypopg_creation)
                     except psycopg2.Error as e:
                         logger.error(f"Error in sql statement : SELECT hypopg_create_index('{index}');")
-                        logger.error(e)
+                        # logger.error(e)
                         conn.commit()
                         cursor.close()
                         cursor = conn.cursor()
@@ -871,6 +915,7 @@ def query_plan_get_used_indexes(sqls, conn, existing_indexes, schema = 'public')
     conn.commit()
     cursor.close()
     
+    used_indexes = list(used_indexes)
     # logger.info(f"* used_indexes --> {used_indexes}, {len(used_indexes)}")
     
     return total_cost, used_indexes
@@ -927,7 +972,7 @@ def query_plan_cost_estimation_used_indexes(sqls, conn, schema = 'public') :
 def get_existing_indexes(conn, schema = 'public') :
     cursor = conn.cursor()
     cursor.execute(f"set search_path to {schema};")
-    get_index_sql = "select indexdef from pg_indexes where schemaname = 'public';"
+    get_index_sql = f"select indexdef from pg_indexes where schemaname = '{schema}';"
     
     cursor.execute(get_index_sql)
     res = cursor.fetchall()
@@ -1089,7 +1134,7 @@ def incremental_recommend_creation(conn, recommend_index, current_storage_, stor
                 cursor.execute(hypopg_creation)
             except psycopg2.Error as e:
                 logger.error(f"Error in sql statement : SELECT hypopg_create_index('{index}');")
-                logger.error(e)
+                # logger.error(e)
                 conn.commit()
                 cursor.close()
                 cursor = conn.cursor()
@@ -1160,16 +1205,16 @@ def incremental_recommend_creation(conn, recommend_index, current_storage_, stor
     
     return constrain_sqls, existing_indexes
 
-def drop_indexes(conn, schema = 'public') :
+def drop_indexes(conn, db_name, pg_data_dir, schema = 'public') :
     cursor = conn.cursor()
     cursor.execute(f"set search_path to {schema};")
     cursor.execute("select * from hypopg_list_indexes;")
     hypopg_indexes = cursor.fetchall()
     for index in hypopg_indexes :
         cursor.execute(f"select hypopg_drop_index({index[0]});")
-        
-    drop_index_sql = "select indexname from pg_indexes where indexname not in (select conname from pg_constraint where contype = 'p') and schemaname = 'public';"
-    drop_index_prefix(conn, drop_index_sql)
+
+    drop_index_sql = f"select indexname from pg_indexes where indexname not in (select conname from pg_constraint where contype = 'p') and schemaname = '{schema}';"
+    _, conn = drop_index_prefix(conn, db_name, pg_data_dir, schema, drop_index_sql)
     
     conn.commit()
     cursor.close()   
@@ -1197,17 +1242,14 @@ def create_existing_indexes(conn, existing_indexes_, schema = 'public') :
     
     return total_storage, existing_indexes
 
-def update_used_indexes(conn, used_indexes, existing_indexes_, best_indexes, schema = 'public') :
+def update_used_indexes(conn, used_indexes, existing_indexes_, best_indexes, db_name, pg_data_dir, schema = 'public') :
     current_storage = 0
     cursor = conn.cursor()
     cursor.execute(f"set search_path to {schema};")
     
     # logger.debug("===========================================")
-    # logger.debug(f"[update_used_indexes] used_indexes --> {used_indexes}")
-    # logger.debug(f"[update_used_indexes] existing_indexes_ --> {existing_indexes_}")
-    # logger.debug(f"[update_used_indexes] best_indexes --> {best_indexes}")
     ## drop all hypopg indexes
-    drop_indexes(conn)
+    drop_indexes(conn, db_name, pg_data_dir, schema)
     
     ## keep primary key
     existing_indexes = {}
@@ -1474,7 +1516,7 @@ def demos_match_cluster(input_info, recommend_demos, iter_idx, num, args, feat =
     demo_ids = []
     
     demos_meta_data_path = args["demos_meta_data_path"]
-    cluster_n = args['demos_cluster_n']
+    cluster_n = args['demos_cluster_n'] if 'cluster_n' in args.keys() else cluster_n
     
     demos_meta_data = {} # demos_idx -> demos_feat {where, join}
     # calculate columns set in demos
@@ -1706,3 +1748,93 @@ def get_max_numeric_subdir(path="."):
             if max_num is None or num > max_num:
                 max_num = num
     return max_num
+
+# # workload summarizer [predefine prompt_template as global variable]
+# def workload_summarizer(workload_feature, llm_args, opmes_dir, iter_idx, sum_i) : # workload_feature dict with 4 keys
+#     client = OpenAI(
+#         api_key = llm_args['api_key'], 
+#         base_url = llm_args['base_url'],
+#     )
+#     workload_summarizer_system_prompt = prompt_template['workload_summarizer']['system_prompt']
+    
+#     user_message = ""
+#     for key, value in workload_feature.items() :
+#         user_message += f"{key} : {value}\n"
+    
+#     logger.info("[Workload Summarizer] -- Start LLM Inference --")
+#     starttime = time.time()
+#     completion = client.chat.completions.create(
+#         model = llm_args['model_name'],
+#         messages = [
+#             {"role": "system", "content": workload_summarizer_system_prompt},
+#             {"role": "user", "content": user_message}
+#         ],
+#         temperature = llm_args['temperature'],
+#         n = 1
+#     )
+#     endtime = time.time()
+#     logger.info("[Workload Summarizer] -- Finish LLM Inference --")
+    
+    
+#     llm_mess = completion.choices
+#     for i, llm_mes in enumerate(llm_mess) :
+#         try:
+#             json_format = json.loads(llm_mes.message.content)
+#             with open(os.path.join(opmes_dir, f"wlf_{iter_idx}th_{sum_i}_{i}.json"), 'w') as file :
+#                 json.dump(json_format, file, indent=4)
+
+#             return json_format
+
+#         except json.JSONDecodeError:
+#             with open(os.path.join(opmes_dir, f"wlf_{iter_idx}th_{sum_i}_{i}.txt"), 'w') as f :
+#                 f.write(llm_mes.message.content)
+            
+#             print(f"Error: The LLM output is not valid JSON. Please check the file wlf_{iter_idx}th_{i}.txt for details.")
+#             exit()
+    
+#     # print()
+#     # print(f"-- LLM Inference Time: {endtime - starttime} seconds")
+#     # encoding = tiktoken.encoding_for_model("gpt-4o")
+#     # input_tokens = encoding.encode(workload_summarizer_system_prompt + user_message)
+#     # print(f"-- Input Tokens: {len(input_tokens)}")
+#     # output_tokens_list = [encoding.encode(llm_mes.message.content) for llm_mes in llm_mess]
+#     # print(f"-- Output Tokens: {[len(output_tokens) for output_tokens in output_tokens_list]}")
+
+# def input_information_summarizer(demonstrations, input_information, summarized_workload_feature, args, opmes_dir, iter_idx, logger) :
+#     llm_args = {
+#         'api_key' : args['api_key'],
+#         'base_url' : args['base_url'],
+#         'model_name' : args['model_name'],
+#         'temperature' : args['temperature']
+#     }
+    
+#     rewrited_demonstrations = []
+#     for sum_i, demo in enumerate(demonstrations) :
+#         rewrited_demonstration = {}
+        
+#         extract_demo_information = {}
+#         for key, value in demo.items() :
+#             if key not in ['Existing Indexes', 'Optimal Recommended Indexes'] :
+#                 extract_demo_information[key] = value
+        
+#         rewrited_demonstration = workload_summarizer(extract_demo_information, llm_args, opmes_dir, iter_idx, sum_i)
+#         rewrited_demonstration['Existing Indexes'] = demo['Existing Indexes']
+#         rewrited_demonstration['Optimal Recommended Indexes'] = demo['Optimal Recommended Indexes']
+#         rewrited_demonstrations.append(rewrited_demonstration)
+            
+#     rewrited_input_information = {}
+    
+#     if summarized_workload_feature != {} :
+#         for key, value in summarized_workload_feature.items() :
+#             rewrited_input_information[key] = value
+#     else :
+#         extract_input_information = {}
+#         for key in ['Sorted Column NDV in SQL Level', 'WHERE Columns and Selectivities', 'JOIN Columns', 'GROUP BY or ORDER BY Columns'] :
+#             extract_input_information[key] = input_information[key]
+#         rewrited_input_information = workload_summarizer(extract_input_information, llm_args, opmes_dir, iter_idx, len(demonstrations))
+    
+#     for key in input_information.keys() :
+#         if key not in rewrited_input_information.keys() :
+#             rewrited_input_information[key] = input_information[key]
+            
+#     return rewrited_demonstrations, rewrited_input_information
