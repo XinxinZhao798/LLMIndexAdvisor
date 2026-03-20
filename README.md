@@ -4,6 +4,8 @@ We propose LLMIA, an out-of-the-box, tuning-free index advisor that leverages la
 
 ![overview](overview.png)
 
+ℹ️ Ongoing updates for this project are now maintained at: [https://github.com/RUCKBReasoning/LLMIA]
+
 ## Environment Preparation
 
 Our proposed method is implemented with the following environments:
