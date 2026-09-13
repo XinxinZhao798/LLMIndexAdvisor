@@ -1,3 +1,5 @@
+
+
 # LLMIA: An Out-of-the-Box Index Advisor via In-Context Learning with LLMs
 
 We propose LLMIA, an out-of-the-box, tuning-free index advisor that leverages large language models (LLMs) through in-context learning.
@@ -90,7 +92,7 @@ python json_agg_cost.py
        "model_name": "llm_model_name",
        "api_key": "api_key",
        "base_url": "llm_model_url",
-       "demos_path": "demos_path(eg. './demos_info/all.json')"",
+       "demos_path": "demos_path(eg. './demos_info/all.json')",
        "demos_meta_data_path": "meta_data_path (eg. ./demos_info/meta_data/all_cross_meta.json)",
        "demos_match_feat": 0/1/2/3/4/5,
        "detailed_info_path": "./log",
